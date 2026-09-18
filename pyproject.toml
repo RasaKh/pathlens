@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pathlens"
+version = "0.1.0"
+description = "Shortcut Pathology: live CNN shortcut-learning clinic"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+# The four sets are written out flat (no self-references) because torch comes from a
+# different index per set; see [tool.uv.sources] and [tool.uv] conflicts below.
+[project.optional-dependencies]
+serve = [
+  "torch", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
+]
+train = [
+  "torch", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
+  "pandas", "pyarrow", "scikit-learn", "zstandard",
+]
+analysis = [
+  "torch", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
+  "pandas", "pyarrow", "scikit-learn", "zstandard",
+  "umap-learn", "scikit-image", "medmnist", "wilds", "jinja2",
+]
+dev = [
+  "torch", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
+  "pandas", "pyarrow", "scikit-learn", "zstandard",
+  "umap-learn", "scikit-image", "medmnist", "wilds", "jinja2",
+  "pytest", "pytest-timeout", "ruff",
+]
+
+[tool.setuptools.packages.find]
+include = ["pathlens*"]
+
+[tool.uv]
+# serve (VPS), analysis and dev (laptop) use CPU wheels; train (rented GPU) uses CUDA 12.8+.
+conflicts = [
+  [{ extra = "train" }, { extra = "serve" }],
+  [{ extra = "train" }, { extra = "analysis" }],
+  [{ extra = "train" }, { extra = "dev" }],
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", extra = "serve" },
+  { index = "pytorch-cpu", extra = "analysis" },
+  { index = "pytorch-cpu", extra = "dev" },
+  { index = "pytorch-cu128", extra = "train" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 120
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 110
+target-version = "py314"

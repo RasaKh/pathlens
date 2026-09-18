@@ -1,0 +1,8 @@
+# Shape, not final values (architecture doc, "Configuration and run identity").
+budget_hours: 4
+model: {widths: [32, 64, 128, 256], num_classes: 2}
+optim: {epochs: 6, batch_size: 512, peak_lr: 3.0e-3}
+queue:
+  - {levels: [hospital, patch, slide, patient], folds: all, variant: plain, seeds: [0]}
+  - {levels: [hospital], folds: all, variant: aug, seeds: [0]}
+  - {levels: [hospital], folds: all, variant: [plain, aug], seeds: [1]}
