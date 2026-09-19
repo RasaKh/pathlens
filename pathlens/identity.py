@@ -1,18 +1,44 @@
-"""Identity and hashing (architecture doc, "Identity and hashing")."""
+"""Identity, hashing and seeding (architecture doc, "Identity and hashing" / "Reproducibility").
+
+`seed_all` is a single call at the top of every entry point. CuDNN determinism slows training
+down on some shapes, so it is off unless the caller asks for it.
+"""
 from __future__ import annotations
 
 import dataclasses
 import hashlib
+import os
+import random
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import orjson
 import torch
 
 from .config import RunCfg
 
 _BLOCK = 8 * 1024 * 1024
+
+
+def seed_all(seed: int, *, deterministic_cudnn: bool = False) -> None:
+    """Seed python, numpy and torch; pin hashes; set torch.use_deterministic_algorithms(True).
+
+    `deterministic_cudnn` costs speed on some shapes; leave it off for GPU runs and on when the
+    CPU/GPU output of a small tensor test must match bit for bit.
+    """
+    if seed < 0:
+        raise ValueError(f"seed must be >= 0, got {seed}")
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.deterministic = deterministic_cudnn
+    torch.backends.cudnn.benchmark = False
 
 
 def canonical_json(obj: Any) -> bytes:
