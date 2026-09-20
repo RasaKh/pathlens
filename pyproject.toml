@@ -13,19 +13,19 @@ dependencies = []
 # different index per set; see [tool.uv.sources] and [tool.uv] conflicts below.
 [project.optional-dependencies]
 serve = [
-  "torch", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
+  "torch", "torchvision", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
 ]
 train = [
-  "torch", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
+  "torch", "torchvision", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
   "pandas", "pyarrow", "scikit-learn", "zstandard",
 ]
 analysis = [
-  "torch", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
+  "torch", "torchvision", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
   "pandas", "pyarrow", "scikit-learn", "zstandard",
   "umap-learn", "scikit-image", "medmnist", "wilds", "jinja2",
 ]
 dev = [
-  "torch", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
+  "torch", "torchvision", "numpy", "pillow", "flask", "gunicorn", "pyyaml", "orjson",
   "pandas", "pyarrow", "scikit-learn", "zstandard",
   "umap-learn", "scikit-image", "medmnist", "wilds", "jinja2",
   "pytest", "pytest-timeout", "ruff",
@@ -49,7 +49,15 @@ torch = [
   { index = "pytorch-cpu", extra = "dev" },
   { index = "pytorch-cu128", extra = "train" },
 ]
-
+# torchvision must come from the same index as torch: a plain PyPI torchvision
+# wheel is built against plain PyPI torch and fails at import against the
+# +cpu build ("operator torchvision::nms does not exist").
+torchvision = [
+  { index = "pytorch-cpu", extra = "serve" },
+  { index = "pytorch-cpu", extra = "analysis" },
+  { index = "pytorch-cpu", extra = "dev" },
+  { index = "pytorch-cu128", extra = "train" },
+]
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"

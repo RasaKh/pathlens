@@ -183,9 +183,15 @@ torch==2.14.1+cpu ; sys_platform != 'darwin'
     #   pathlens
     #   torchvision
     #   wilds
-torchvision==0.29.1
+torchvision==0.29.1 ; sys_platform == 'darwin'
     # via
     #   medmnist
+    #   pathlens
+    #   wilds
+torchvision==0.29.1+cpu ; sys_platform != 'darwin'
+    # via
+    #   medmnist
+    #   pathlens
     #   wilds
 tqdm==4.70.1
     # via
