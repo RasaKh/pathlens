@@ -56,7 +56,22 @@ def hed_to_rgb(s: Tensor) -> Tensor:
     return torch.exp(-_L * _apply(s, m)).clamp(0, 1)
 
 
-def tissue_mask(s: Tensor, thresh: float = 0.15) -> Tensor:
+MIN_TISSUE_FRACTION = 0.05
+MIN_SOURCE_STD = 1e-4
+
+# Doc default was 0.15; calibration on real PathMNIST at 64 px (BUILD_LOG Session 5)
+# showed 0.15 passes only 2.0% of pixels, skipping 91.0% of patches in match_stats.
+# Otsu on s.sum at 64 px: 0.0715 (median patch 40.2% tissue, 9.3% of patches skipped).
+TISSUE_THRESH = 0.0715
+
+# Doc default was (-0.05, 0.05); calibration at 64 px showed that shift tints white
+# background harder than it jitters tissue (mean |dRGB| 0.161 background vs 0.100
+# tissue at the doc's shift). Halved, and applied only inside the tissue mask so
+# glass is untouched (background now moves by 0.004 mean, scale only).
+JITTER_SHIFT = (-0.025, 0.025)
+
+
+def tissue_mask(s: Tensor, thresh: float = TISSUE_THRESH) -> Tensor:
     """[B,H,W] bool: s.sum(1) > thresh (not white glass)."""
     return s.sum(1) > thresh
 
@@ -64,18 +79,28 @@ def tissue_mask(s: Tensor, thresh: float = 0.15) -> Tensor:
 def hed_jitter(x: Tensor, g: torch.Generator, scale: tuple[float, float], shift: tuple[float, float]
                ) -> Tensor:
     """Per sample, per H/E/D channel: alpha ~ U(scale), beta ~ U(shift), shapes [B,3,1,1].
-    s' = clamp(alpha * s + beta, min=0); returns RGB. `g` must live on x's device."""
+    s' = clamp(alpha * s + beta, min=0); returns RGB. The shift beta is applied only inside
+    the tissue mask, so white glass is untouched (calibration: the doc's full-image shift
+    tinted background harder than it jittered tissue). `g` must live on x's device."""
     s = rgb_to_hed(x)
     b = x.shape[0]
     alpha = scale[0] + (scale[1] - scale[0]) * torch.rand(b, 3, 1, 1, generator=g, device=x.device,
                                                           dtype=x.dtype)
     beta = shift[0] + (shift[1] - shift[0]) * torch.rand(b, 3, 1, 1, generator=g, device=x.device,
                                                          dtype=x.dtype)
+    mask = tissue_mask(s)                                  # [B,H,W] bool
+    beta = beta * mask[:, None, :, :]                      # zero the shift outside tissue
     return hed_to_rgb((alpha * s + beta).clamp_min(0))
 
 
 def stain_adjust(x: Tensor, h: float, e: float, brightness: float) -> Tensor:
-    """s[:,0] *= h; s[:,1] *= e; rgb = hed_to_rgb(s); return clamp(rgb * brightness, 0, 1)."""
+    """s[:,0] *= h; s[:,1] *= e; rgb = hed_to_rgb(s); return clamp(rgb * brightness, 0, 1).
+
+    At neutral (h == e == 1.0 and brightness == 1.0) the input is returned untouched: the
+    HED round trip is lossy on near-black pixels (BUILD_LOG Session 5), so converting and
+    coming back would alter a patch the user did not ask to change."""
+    if h == 1.0 and e == 1.0 and brightness == 1.0:
+        return x
     s = rgb_to_hed(x)
     scale = torch.tensor([h, e, 1.0], dtype=x.dtype, device=x.device).view(1, 3, 1, 1)
     return (hed_to_rgb(s * scale) * brightness).clamp(0, 1)
@@ -99,7 +124,7 @@ MIN_TISSUE_FRACTION = 0.05
 MIN_SOURCE_STD = 1e-4
 
 
-def stain_stats(x: Tensor, thresh: float = 0.15) -> StainStats:
+def stain_stats(x: Tensor, thresh: float = TISSUE_THRESH) -> StainStats:
     """Stats over tissue pixels of all images in the batch (what scripts/stain_stats.py aggregates)."""
     s = rgb_to_hed(x)
     mask = tissue_mask(s, thresh)

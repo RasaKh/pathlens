@@ -50,7 +50,10 @@ class AugCfg:
     rot90: bool = True
     stain: bool = False
     stain_scale: tuple[float, float] = (0.95, 1.05)
-    stain_shift: tuple[float, float] = (-0.05, 0.05)
+    # Doc default was (-0.05, 0.05); calibration on real PathMNIST at 64 px showed that
+    # shift tints white background harder than it jitters tissue, and hed_jitter now
+    # applies it only inside the tissue mask. Halved accordingly (BUILD_LOG Session 5).
+    stain_shift: tuple[float, float] = (-0.025, 0.025)
 
 
 @dataclass(frozen=True)

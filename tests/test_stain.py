@@ -62,8 +62,10 @@ def test_tissue_mask(he_image):
 
 
 def test_stain_adjust_neutral_and_directional(he_image):
+    # At neutral the patch is returned untouched: the HED round trip is lossy on
+    # near-black pixels, so converting and coming back would alter an unasked-for patch.
     neutral = stain_adjust(he_image, 1.0, 1.0, 1.0)
-    assert torch.allclose(neutral, hed_to_rgb(rgb_to_hed(he_image)))
+    assert torch.equal(neutral, he_image)
     tissue = tissue_mask(rgb_to_hed(he_image))[0]
     more_h = rgb_to_hed(stain_adjust(he_image, 1.6, 1.0, 1.0))
     assert float(more_h[0, 0][tissue].mean()) > 1.3 * float(rgb_to_hed(he_image)[0, 0][tissue].mean())
@@ -83,9 +85,31 @@ def test_hed_jitter_deterministic_bounded_per_sample(he_image):
     assert not torch.allclose(a[0], a[1])                           # different draw per sample
     ident = hed_jitter(x, torch.Generator().manual_seed(0), (1.0, 1.0), (0.0, 0.0))
     assert torch.allclose(ident, hed_to_rgb(rgb_to_hed(x)), atol=1e-6)
-    # Doc defaults (shift +-0.05 in skimage's stain scale, where dense tissue is ~0.1) are strong:
-    # mean absolute RGB change is ~0.1. Recorded in BUILD_LOG.md for calibration on real data.
+    # With the doc's strong shift (+-0.05 in skimage's stain scale, where dense tissue is ~0.1)
+    # the mean absolute RGB change is ~0.1; recorded in BUILD_LOG.md Session 5 at 64 px as 0.162.
     assert 0.02 < float((a - x).abs().mean()) < 0.25
+
+
+def test_hed_jitter_shift_applies_only_inside_tissue(he_image):
+    """The shift tints white glass; the scale still applies everywhere."""
+    x = he_image.repeat(2, 1, 1, 1)
+    g = torch.Generator().manual_seed(11)
+    out = hed_jitter(x, g, (0.95, 1.05), (-0.025, 0.025))
+    s = rgb_to_hed(x)
+    bg = (~tissue_mask(s))[0]                                    # [H,W]
+    # hed_jitter draws alpha then beta from the same generator, so a fresh generator with
+    # the same seed reproduces alpha exactly. On background beta is zeroed, so the output
+    # there must equal the scale-only round trip hed_to_rgb(alpha * s).
+    g_alpha = torch.Generator().manual_seed(11)
+    alpha0 = 0.95 + 0.10 * torch.rand(1, 3, 1, 1, generator=g_alpha)   # [3,1,1], same draw order
+    ref_bg = hed_to_rgb(alpha0 * s[0:1])[0]
+    assert torch.allclose(out[0][:, bg], ref_bg[:, bg], atol=1e-6)
+    # tissue pixels carry the full jitter, shift included; the background moves only by
+    # the scale round trip, which is an order of magnitude smaller.
+    tissue = tissue_mask(s)[0]
+    tissue_move = float((out[0][:, tissue] - x[0][:, tissue]).abs().mean())
+    bg_move = float((out[0][:, bg] - x[0][:, bg]).abs().mean())
+    assert tissue_move > 3 * bg_move and tissue_move > 0.004
 
 
 def test_stain_stats_over_tissue_only(he_image):
