@@ -79,9 +79,11 @@ def tissue_mask(s: Tensor, thresh: float = TISSUE_THRESH) -> Tensor:
 def hed_jitter(x: Tensor, g: torch.Generator, scale: tuple[float, float], shift: tuple[float, float]
                ) -> Tensor:
     """Per sample, per H/E/D channel: alpha ~ U(scale), beta ~ U(shift), shapes [B,3,1,1].
-    s' = clamp(alpha * s + beta, min=0); returns RGB. The shift beta is applied only inside
-    the tissue mask, so white glass is untouched (calibration: the doc's full-image shift
-    tinted background harder than it jittered tissue). `g` must live on x's device."""
+    s' = clamp(alpha * s + beta, min=0). The shift beta is applied only inside the tissue mask, so
+    white glass is untouched (calibration: the doc's full-image shift tinted background harder than
+    it jittered tissue). Returns clamp(x + (rgb(s') - rgb(s)), 0, 1): the change is added to the
+    original, so alpha = 1, beta = 0 returns x exactly instead of its lossy HED round trip.
+    `g` must live on x's device."""
     s = rgb_to_hed(x)
     b = x.shape[0]
     alpha = scale[0] + (scale[1] - scale[0]) * torch.rand(b, 3, 1, 1, generator=g, device=x.device,
@@ -90,20 +92,20 @@ def hed_jitter(x: Tensor, g: torch.Generator, scale: tuple[float, float], shift:
                                                          dtype=x.dtype)
     mask = tissue_mask(s)                                  # [B,H,W] bool
     beta = beta * mask[:, None, :, :]                      # zero the shift outside tissue
-    return hed_to_rgb((alpha * s + beta).clamp_min(0))
+    return (x + (hed_to_rgb((alpha * s + beta).clamp_min(0)) - hed_to_rgb(s))).clamp(0, 1)
 
 
 def stain_adjust(x: Tensor, h: float, e: float, brightness: float) -> Tensor:
-    """s[:,0] *= h; s[:,1] *= e; rgb = hed_to_rgb(s); return clamp(rgb * brightness, 0, 1).
+    """s[:,0] *= h; s[:,1] *= e; adjusted = clamp(hed_to_rgb(s) * brightness, 0, 1).
 
-    At neutral (h == e == 1.0 and brightness == 1.0) the input is returned untouched: the
-    HED round trip is lossy on near-black pixels (BUILD_LOG Session 5), so converting and
-    coming back would alter a patch the user did not ask to change."""
-    if h == 1.0 and e == 1.0 and brightness == 1.0:
-        return x
+    Returns clamp(x + (adjusted - hed_to_rgb(rgb_to_hed(x))), 0, 1). The HED round trip is lossy on
+    near-black pixels (BUILD_LOG Session 5: a slider moving 1.000 -> 1.001 changed dark pixels by up
+    to 0.82), so the slider's effect is added to the original patch. At neutral the difference is
+    exactly zero and x comes back unchanged, and nothing jumps as a slider leaves neutral."""
     s = rgb_to_hed(x)
     scale = torch.tensor([h, e, 1.0], dtype=x.dtype, device=x.device).view(1, 3, 1, 1)
-    return (hed_to_rgb(s * scale) * brightness).clamp(0, 1)
+    base = hed_to_rgb(s)
+    return (x + (hed_to_rgb(s * scale) * brightness - base)).clamp(0, 1)
 
 
 @dataclass(frozen=True)
@@ -118,10 +120,6 @@ class MatchInfo:
     skipped: bool
     reason: str | None = None
     tissue_fraction: float = 0.0
-
-
-MIN_TISSUE_FRACTION = 0.05
-MIN_SOURCE_STD = 1e-4
 
 
 def stain_stats(x: Tensor, thresh: float = TISSUE_THRESH) -> StainStats:

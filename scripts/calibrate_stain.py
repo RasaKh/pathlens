@@ -50,18 +50,36 @@ DOC_SHIFT = (-0.05, 0.05)  # the architecture doc's original jitter shift, for c
 EXPECTED_MD5 = {28: "a8b06965200029087d5bd730944a56c1", 64: "55aa9c1e0525abe5a6b9d8343a507616"}
 
 
+def doc_hed_jitter(x: torch.Tensor, g: torch.Generator, scale: tuple[float, float],
+                   shift: tuple[float, float]) -> torch.Tensor:
+    """The architecture doc's jitter as written: s' = clamp(alpha * s + beta, 0), beta on EVERY pixel
+    (no tissue mask), returned straight from stain space (no add-the-difference). Same draw order as
+    pathlens.stain.hed_jitter, so a generator with the same seed gives the same alpha and beta."""
+    s = rgb_to_hed(x)
+    b = x.shape[0]
+    alpha = scale[0] + (scale[1] - scale[0]) * torch.rand(b, 3, 1, 1, generator=g, dtype=x.dtype)
+    beta = shift[0] + (shift[1] - shift[0]) * torch.rand(b, 3, 1, 1, generator=g, dtype=x.dtype)
+    return hed_to_rgb((alpha * s + beta).clamp_min(0))
+
+
+def md5_file(path: Path) -> str:
+    h = hashlib.md5()
+    with path.open("rb") as f:
+        while chunk := f.read(8 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def load_pathmnist(size: int) -> np.ndarray:
     """PathMNIST train split as uint8 [N,size,size,3]. The npz must already be in .data/."""
     npz = DATA_DIR / ("pathmnist.npz" if size == 28 else f"pathmnist_{size}.npz")
     if not npz.exists():
         raise SystemExit(f"missing {npz}; see the module docstring for the manual download")
-    digest = hashlib.md5(npz.read_bytes()).hexdigest()
+    digest = md5_file(npz)
     print(f"{npz.name}: {npz.stat().st_size / 2**20:.0f} MiB, md5 {digest} "
           f"({'OK' if digest == EXPECTED_MD5[size] else 'MISMATCH, expected ' + EXPECTED_MD5[size]})")
-    from medmnist import PathMNIST
-
-    ds = PathMNIST(split="train", download=False, root=str(DATA_DIR), size=size)
-    imgs = ds.imgs
+    with np.load(npz) as z:                           # train images only: the file holds all splits
+        imgs = z["train_images"]
     print(f"PathMNIST train: {imgs.shape[0]:,} patches, {imgs.shape[1]}x{imgs.shape[2]}, "
           f"dtype {imgs.dtype}")
     return imgs
@@ -115,19 +133,22 @@ def main() -> None:
     g = torch.Generator().manual_seed(args.seed)
     jittered = hed_jitter(x, g, aug.stain_scale, aug.stain_shift)
     diff = (jittered - x).abs()
-    print(f"  mean |RGB change|: {float(diff.mean()):.4f}")
     tissue = tissue_mask(s)
     background = ~tissue
-    if bool(tissue.any()) and bool(background.any()):
-        t = diff.permute(0, 2, 3, 1)[tissue]
-        b = diff.permute(0, 2, 3, 1)[background]
-        print(f"  on tissue pixels: mean {float(t.mean()):.4f}; "
-              f"on background pixels: mean {float(b.mean()):.4f} "
-              f"(background tinting is the concern)")
+
+    def report(label: str, d: torch.Tensor) -> None:
+        """Overall mean, and the tissue / background split; overall lies between the two means."""
+        line = f"  {label}: mean |RGB change| {float(d.mean()):.4f}"
+        if bool(tissue.any()) and bool(background.any()):
+            t = d.permute(0, 2, 3, 1)[tissue]
+            bg = d.permute(0, 2, 3, 1)[background]
+            line += f"; tissue pixels {float(t.mean()):.4f}; background pixels {float(bg.mean()):.4f}"
+        print(line)
+
+    report("live defaults (shift on tissue only, change added to the original)", diff)
     g2 = torch.Generator().manual_seed(args.seed)
-    old = hed_jitter(x, g2, aug.stain_scale, DOC_SHIFT)
-    print(f"  for reference, the doc's shift {DOC_SHIFT}: mean |RGB change| "
-          f"{float((old - x).abs().mean()):.4f}")
+    doc = doc_hed_jitter(x, g2, aug.stain_scale, DOC_SHIFT)
+    report(f"the doc's jitter as written (shift {DOC_SHIFT} on every pixel, no mask)", (doc - x).abs())
 
     # ---- 3. HED round trip ---------------------------------------------------
     print("\n== HED round trip hed_to_rgb(rgb_to_hed(x)) ==")
