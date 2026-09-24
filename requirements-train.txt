@@ -45,7 +45,6 @@ numpy==2.5.3
     #   pathlens
     #   scikit-learn
     #   scipy
-    #   torchvision
 nvidia-cublas-cu12==12.8.4.1 ; sys_platform == 'linux'
     # via
     #   cuda-toolkit
@@ -90,9 +89,7 @@ orjson==3.13.0
 pandas==3.0.6
     # via pathlens
 pillow==12.3.0
-    # via
-    #   pathlens
-    #   torchvision
+    # via pathlens
 pyarrow==25.0.1
     # via pathlens
 python-dateutil==2.9.0.post0
@@ -112,10 +109,6 @@ sympy==1.14.0
 threadpoolctl==3.7.0
     # via scikit-learn
 torch==2.11.0+cu128
-    # via
-    #   pathlens
-    #   torchvision
-torchvision==0.26.0+cu128
     # via pathlens
 triton==3.6.0 ; sys_platform == 'linux'
     # via torch

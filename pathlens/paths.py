@@ -21,40 +21,35 @@ OUTPUTS_DIR = "outputs"                # metric tables, PNG maps, figures, repor
 
 @cache
 def home() -> Path:
-    """The PathLENS root: $PATHLENS_HOME, else ~/pathlens. Created if missing."""
+    """The PathLENS root: $PATHLENS_HOME, else ~/pathlens. Not created (lookups never write)."""
     raw = os.environ.get(ENV_VAR)
-    root = Path(raw).expanduser() if raw else Path.home() / "pathlens"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    return Path(raw).expanduser() if raw else Path.home() / "pathlens"
 
 
 def runs_dir() -> Path:
     """<home>/runs/<run_id>/ — training and evaluation outputs."""
-    d = home() / "runs"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return home() / "runs"
 
 
 def run_dir(run_id: str) -> Path:
-    d = runs_dir() / run_id
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return runs_dir() / run_id
 
 
 def model_dir(run_id: str) -> Path:
-    d = run_dir(run_id) / MODEL_DIR
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return run_dir(run_id) / MODEL_DIR
 
 
 def outputs_dir(run_id: str) -> Path:
-    d = run_dir(run_id) / OUTPUTS_DIR
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return run_dir(run_id) / OUTPUTS_DIR
 
 
 def data_dir() -> Path:
     """<home>/data — prepared PathMNIST tensors, parquet manifests, stain statistics."""
-    d = home() / "data"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return home() / "data"
+
+
+def ensure(path: Path) -> Path:
+    """Create `path` (and parents) and return it. Writers call this; the lookups above never do, so a
+    typo'd run id cannot leave an empty folder that looks like a run in progress."""
+    path.mkdir(parents=True, exist_ok=True)
+    return path

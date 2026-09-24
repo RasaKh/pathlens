@@ -21,11 +21,16 @@ def test_seed_all_makes_torch_draws_reproducible():
     assert not torch.allclose(a, torch.randn(64, 64))
 
 
-def test_seed_all_enables_deterministic_algorithms_and_benchmark_off():
-    seed_all(7)
-    assert torch.are_deterministic_algorithms_enabled()
-    assert torch.backends.cudnn.benchmark is False
-    assert os.environ["PYTHONHASHSEED"] == "7"
+def test_seed_all_determinism_switches_are_off_by_default_and_opt_in():
+    try:
+        seed_all(7)
+        assert not torch.are_deterministic_algorithms_enabled()
+        assert torch.backends.cudnn.benchmark is False
+        assert os.environ["PYTHONHASHSEED"] == "7"
+        seed_all(7, deterministic_algorithms=True)
+        assert torch.are_deterministic_algorithms_enabled()
+    finally:
+        torch.use_deterministic_algorithms(False)
 
 
 def test_seed_all_rejects_negative_seed():
@@ -46,7 +51,6 @@ def home(tmp_path, monkeypatch):
 
 def test_home_uses_pathlens_home(home):
     assert paths.home() == home
-    assert home.is_dir()                       # created, not just resolved
 
 
 def test_home_falls_back_to_home_directory(monkeypatch):
@@ -60,7 +64,18 @@ def test_home_falls_back_to_home_directory(monkeypatch):
 
 def test_run_directories_are_named_by_run_id(home):
     d = paths.run_dir("p2-hospital-f2-aug-s0")
-    assert d == home / "runs" / "p2-hospital-f2-aug-s0" and d.is_dir()
+    assert d == home / "runs" / "p2-hospital-f2-aug-s0"
     assert paths.model_dir("p2-hospital-f2-aug-s0") == d / paths.MODEL_DIR
     assert paths.outputs_dir("p2-hospital-f2-aug-s0") == d / paths.OUTPUTS_DIR
-    assert paths.data_dir() == home / "data" and paths.data_dir().is_dir()
+    assert paths.data_dir() == home / "data"
+
+
+def test_lookups_never_create_folders(home):
+    paths.run_dir("typo"), paths.model_dir("typo"), paths.outputs_dir("typo"), paths.data_dir()
+    paths.runs_dir()
+    assert list(home.iterdir()) == []          # nothing appeared, so a typo'd run id leaves no trace
+
+
+def test_ensure_creates_on_request(home):
+    d = paths.ensure(paths.model_dir("real-run"))
+    assert d.is_dir() and d == home / "runs" / "real-run" / paths.MODEL_DIR

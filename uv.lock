@@ -810,8 +810,6 @@ serve = [
     { name = "pyyaml" },
     { name = "torch", version = "2.14.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-8-pathlens-serve') or (sys_platform != 'darwin' and extra == 'extra-8-pathlens-analysis' and extra == 'extra-8-pathlens-train') or (sys_platform != 'darwin' and extra == 'extra-8-pathlens-dev' and extra == 'extra-8-pathlens-train') or (extra == 'extra-8-pathlens-analysis' and extra != 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train') or (extra == 'extra-8-pathlens-dev' and extra != 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train') or (extra != 'extra-8-pathlens-analysis' and extra != 'extra-8-pathlens-dev' and extra == 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train')" },
     { name = "torch", version = "2.14.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-8-pathlens-serve') or (sys_platform == 'darwin' and extra == 'extra-8-pathlens-analysis' and extra == 'extra-8-pathlens-train') or (sys_platform == 'darwin' and extra == 'extra-8-pathlens-dev' and extra == 'extra-8-pathlens-train') or (extra == 'extra-8-pathlens-analysis' and extra != 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train') or (extra == 'extra-8-pathlens-dev' and extra != 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train') or (extra != 'extra-8-pathlens-analysis' and extra != 'extra-8-pathlens-dev' and extra == 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train')" },
-    { name = "torchvision", version = "0.29.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-8-pathlens-serve') or (sys_platform != 'darwin' and extra == 'extra-8-pathlens-analysis' and extra == 'extra-8-pathlens-train') or (sys_platform != 'darwin' and extra == 'extra-8-pathlens-dev' and extra == 'extra-8-pathlens-train') or (extra == 'extra-8-pathlens-analysis' and extra != 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train') or (extra == 'extra-8-pathlens-dev' and extra != 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train') or (extra != 'extra-8-pathlens-analysis' and extra != 'extra-8-pathlens-dev' and extra == 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train')" },
-    { name = "torchvision", version = "0.29.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-8-pathlens-serve') or (sys_platform == 'darwin' and extra == 'extra-8-pathlens-analysis' and extra == 'extra-8-pathlens-train') or (sys_platform == 'darwin' and extra == 'extra-8-pathlens-dev' and extra == 'extra-8-pathlens-train') or (extra == 'extra-8-pathlens-analysis' and extra != 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train') or (extra == 'extra-8-pathlens-dev' and extra != 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train') or (extra != 'extra-8-pathlens-analysis' and extra != 'extra-8-pathlens-dev' and extra == 'extra-8-pathlens-serve' and extra == 'extra-8-pathlens-train')" },
 ]
 train = [
     { name = "flask" },
@@ -824,7 +822,6 @@ train = [
     { name = "pyyaml" },
     { name = "scikit-learn" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
-    { name = "torchvision", version = "0.26.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
     { name = "zstandard" },
 ]
 
@@ -878,8 +875,6 @@ requires-dist = [
     { name = "torch", marker = "extra == 'train'", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "pathlens", extra = "train" } },
     { name = "torchvision", marker = "extra == 'analysis'", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "pathlens", extra = "analysis" } },
     { name = "torchvision", marker = "extra == 'dev'", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "pathlens", extra = "dev" } },
-    { name = "torchvision", marker = "extra == 'serve'", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "pathlens", extra = "serve" } },
-    { name = "torchvision", marker = "extra == 'train'", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "pathlens", extra = "train" } },
     { name = "umap-learn", marker = "extra == 'analysis'" },
     { name = "umap-learn", marker = "extra == 'dev'" },
     { name = "wilds", marker = "extra == 'analysis'" },
@@ -1324,29 +1319,6 @@ wheels = [
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:2547c9f32f8fd9c8fced83119269d85519b123d4e8c87eba71660fe3a6996336", upload-time = "2026-09-30T19:49:10Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:7d2c35e915793f3ae82e8ee4041a960140bcd0bd35f3ec6eb06e1f1f37a89dba", upload-time = "2026-09-30T19:49:18Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp314-cp314t-win_amd64.whl", hash = "sha256:5c0d1ef51127c9c65ec6394226b82ef1a5f3cd0ab8ffb10f48cc5c08aa72a5cf", upload-time = "2026-09-30T19:49:27Z" },
-]
-
-[[package]]
-name = "torchvision"
-version = "0.26.0+cu128"
-source = { registry = "https://download.pytorch.org/whl/cu128" }
-resolution-markers = [
-    "sys_platform == 'win32'",
-    "sys_platform == 'emscripten'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32'",
-]
-dependencies = [
-    { name = "numpy" },
-    { name = "pillow" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
-]
-wheels = [
-    { url = "https://download-r2.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:b3865fa227661dd75b7b28c96d3d14e739bd08bf0614132758922fe0e7206f91", upload-time = "2026-04-09T23:21:39Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:aac647c9130f1f25f5c8f5bca3d95cfd96bdfac93ab54529690b088e64e4fa64", upload-time = "2026-03-23T15:36:23Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp314-cp314-win_amd64.whl", hash = "sha256:6319e1ba49c6f62ac9902f73d0eab207b8a4dc6b4d3392fe9edd9903fff1be0a", upload-time = "2026-04-09T23:21:40Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:e2ee9e16ee4518292694537fcbd20d2d27044e381d92b864f637e82795796a84", upload-time = "2026-04-09T23:21:40Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:b5772c55bfda4377df8f1930d43c4e0231ef231b0228eade4b227c8d3ba6e34e", upload-time = "2026-03-23T15:36:23Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp314-cp314t-win_amd64.whl", hash = "sha256:f160dc552a086244f7102c898f7be8ef46a41b36bce5ea80a4f2493cb30ca1fc", upload-time = "2026-04-09T23:21:41Z" },
 ]
 
 [[package]]
