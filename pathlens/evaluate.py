@@ -9,6 +9,7 @@ import pandas as pd
 from sklearn.metrics import balanced_accuracy_score, roc_auc_score
 
 DISCARD_WARN_FRACTION = 0.01
+CI_PERCENTILES = (2.5, 97.5)            # the 95% interval every bootstrap function reports
 
 
 def binary_metrics(y, p, thr: float = 0.5) -> dict:
@@ -77,7 +78,7 @@ def bootstrap_ci(df: pd.DataFrame, stat: Callable[[pd.DataFrame], float], unit: 
     _finish(vals, discarded, B, info)
     if not vals:
         raise ValueError("every bootstrap draw was discarded")
-    lo, hi = np.percentile(vals, [2.5, 97.5])
+    lo, hi = np.percentile(vals, CI_PERCENTILES)
     return est, float(lo), float(hi)
 
 
@@ -114,5 +115,5 @@ def paired_cluster_delta(df_a: pd.DataFrame, df_b: pd.DataFrame, stat: Callable[
     _finish(vals, discarded, B, info)
     if not vals:
         raise ValueError("every bootstrap draw was discarded")
-    lo, hi = np.percentile(vals, [2.5, 97.5])
+    lo, hi = np.percentile(vals, CI_PERCENTILES)
     return delta, float(lo), float(hi)
