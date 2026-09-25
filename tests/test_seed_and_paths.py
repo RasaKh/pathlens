@@ -65,17 +65,15 @@ def test_home_falls_back_to_home_directory(monkeypatch):
 def test_run_directories_are_named_by_run_id(home):
     d = paths.run_dir("p2-hospital-f2-aug-s0")
     assert d == home / "runs" / "p2-hospital-f2-aug-s0"
-    assert paths.model_dir("p2-hospital-f2-aug-s0") == d / paths.MODEL_DIR
-    assert paths.outputs_dir("p2-hospital-f2-aug-s0") == d / paths.OUTPUTS_DIR
     assert paths.data_dir() == home / "data"
 
 
 def test_lookups_never_create_folders(home):
-    paths.run_dir("typo"), paths.model_dir("typo"), paths.outputs_dir("typo"), paths.data_dir()
+    paths.run_dir("typo"), paths.data_dir(), paths.artifacts_dir()
     paths.runs_dir()
     assert list(home.iterdir()) == []          # nothing appeared, so a typo'd run id leaves no trace
 
 
 def test_ensure_creates_on_request(home):
-    d = paths.ensure(paths.model_dir("real-run"))
-    assert d.is_dir() and d == home / "runs" / "real-run" / paths.MODEL_DIR
+    d = paths.ensure(paths.run_dir("real-run"))
+    assert d.is_dir() and d == home / "runs" / "real-run"

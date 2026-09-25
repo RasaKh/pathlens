@@ -14,9 +14,8 @@ from pathlib import Path
 
 ENV_VAR = "PATHLENS_HOME"
 
-# Subdirectories of a run directory (doc, "Layout").
-MODEL_DIR = "model"                    # model.pt, model_card.json
-OUTPUTS_DIR = "outputs"                # metric tables, PNG maps, figures, report.html
+# A run directory is flat (doc, "Run directory"): config.json, train_log.jsonl, model.pt, model_card.json,
+# predictions.parquet, metrics.json, DONE. Figures and tables for the page live under artifacts/.
 
 
 @cache
@@ -35,14 +34,6 @@ def run_dir(run_id: str) -> Path:
     return runs_dir() / run_id
 
 
-def model_dir(run_id: str) -> Path:
-    return run_dir(run_id) / MODEL_DIR
-
-
-def outputs_dir(run_id: str) -> Path:
-    return run_dir(run_id) / OUTPUTS_DIR
-
-
 def data_dir() -> Path:
     """<home>/data — prepared PathMNIST tensors, parquet manifests, stain statistics."""
     return home() / "data"
@@ -53,3 +44,8 @@ def ensure(path: Path) -> Path:
     typo'd run id cannot leave an empty folder that looks like a run in progress."""
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def artifacts_dir() -> Path:
+    """<home>/artifacts — result files (artifacts/results/p1_eval.json, ...) the page is built from."""
+    return home() / "artifacts"
