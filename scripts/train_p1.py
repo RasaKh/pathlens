@@ -3,6 +3,7 @@
 
     uv run python -m scripts.train_p1 --variant clean
     uv run python -m scripts.train_p1 --variant poisoned
+    uv run python -m scripts.train_p1 --variant clean --device cuda       # on the GPU machine
     uv run python -m scripts.train_p1 --variant clean --epochs 1 --train-limit 4000    # smoke
 
 Both twins use the same seed, so they see the same batch order and augmentation draws; the poisoned
@@ -55,10 +56,14 @@ def main() -> None:
     ap.add_argument("--variant", required=True, choices=("clean", "poisoned"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--epochs", type=int, default=0, help="override the doc's 15 (smoke runs only)")
+    ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"),
+                    help="cuda is untested (no GPU on the dev box); fp32, no compile, as in the config")
     ap.add_argument("--train-limit", type=int, default=0, help="use only the first N train images (smoke)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise SystemExit("--device cuda given but torch.cuda.is_available() is False")
     cfg = p1_run_cfg(args.variant, args.seed)
     smoke = bool(args.epochs or args.train_limit)
     if args.epochs:
@@ -72,7 +77,7 @@ def main() -> None:
     print(f"{run_id(cfg)}: loading images ({args.variant})")
     inputs = build_inputs(args.variant, args.train_limit)
     try:
-        res = train_run(cfg, inputs, "cpu", out, lambda: stop["flag"])
+        res = train_run(cfg, inputs, args.device, out, lambda: stop["flag"])
     except Interrupted as e:
         print(f"{e}; run the same command again to resume")
         raise SystemExit(130) from e
