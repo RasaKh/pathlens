@@ -49,3 +49,8 @@ def ensure(path: Path) -> Path:
 def artifacts_dir() -> Path:
     """<home>/artifacts — result files (artifacts/results/p1_eval.json, ...) the page is built from."""
     return home() / "artifacts"
+
+
+def reports_dir() -> Path:
+    """<home>/reports — metadata_gate.json and similar one-off reports."""
+    return home() / "reports"
