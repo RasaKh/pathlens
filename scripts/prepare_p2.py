@@ -21,6 +21,7 @@ import hashlib
 import json
 import multiprocessing as mp
 import os
+import shutil
 import tarfile
 from pathlib import Path
 
@@ -55,8 +56,16 @@ def hash_file(path: Path, algo: str = "sha256") -> str:
 
 # ------------------------------------------------------------------ source
 
+ALLOWED_TOP = {"metadata.csv", "RELEASE_v1.0.txt", "patches"}      # what the real archive holds (listed 2026-10-11)
+SIZE_TOLERANCE = 0.01                  # the real file was 0.0017% larger than the WILDS figure; WILDS never checks it
+
+
 def ensure_extracted(src: Path, delete_archive: bool) -> dict:
-    """Extract the archive unless already extracted. Returns facts about the archive for the manifest."""
+    """Extract the archive into src/camelyon17_v1.0/ unless already done. Returns facts for the manifest.
+
+    The real archive lists its files as ./metadata.csv, ./RELEASE_v1.0.txt and ./patches/... (no wrapping folder),
+    which is why WILDS extracts it straight into its dataset folder; so do we.
+    """
     ds = src / DS_DIRNAME
     facts_path = src / "archive_facts.json"
     if (ds / "metadata.csv").exists():
@@ -65,20 +74,30 @@ def ensure_extracted(src: Path, delete_archive: bool) -> dict:
     if not arc.exists():
         raise SystemExit(f"neither {ds}/metadata.csv nor {arc} exists")
     size = arc.stat().st_size
-    if size != ARCHIVE_SIZE:
-        raise SystemExit(f"{arc.name} is {size} bytes, WILDS lists {ARCHIVE_SIZE}: incomplete or wrong file")
+    if abs(size - ARCHIVE_SIZE) > SIZE_TOLERANCE * ARCHIVE_SIZE:
+        raise SystemExit(f"{arc.name} is {size} bytes, WILDS lists about {ARCHIVE_SIZE}: incomplete or wrong file")
     facts = {"archive": ARCHIVE_NAME, "archive_bytes": size, "archive_sha256": hash_file(arc),
+             "wilds_listed_bytes": ARCHIVE_SIZE, "size_equals_wilds_listing": size == ARCHIVE_SIZE,
              "download_authenticated": False}
-    def only_the_dataset_folder(member: tarfile.TarInfo, dest: str) -> tarfile.TarInfo:
-        """The archive is not authenticated: refuse anything outside camelyon17_v1.0/ or with '..', then apply
-        Python's own 'data' filter (no absolute paths, no links or devices pointing out, no special files)."""
-        parts = Path(member.name).parts
-        if ".." in parts or not parts or parts[0] != DS_DIRNAME:
-            raise ValueError(f"archive member {member.name!r} is outside {DS_DIRNAME}/")
+
+    def only_the_dataset(member: tarfile.TarInfo, dest: str) -> tarfile.TarInfo:
+        """The archive is not authenticated: refuse anything that is not metadata.csv, RELEASE_v1.0.txt or patches/,
+        and any '..' or absolute path, then apply Python's own 'data' filter (no links or devices pointing out,
+        no special files)."""
+        parts = [p for p in Path(member.name).parts if p != "."]
+        if Path(member.name).is_absolute() or ".." in parts or (parts and parts[0] not in ALLOWED_TOP):
+            raise ValueError(f"archive member {member.name!r} is not part of the dataset layout {sorted(ALLOWED_TOP)}")
         return tarfile.data_filter(member, dest)
 
+    part = src / (DS_DIRNAME + ".partial")                 # renamed only when complete: a stop never leaves a
+    if part.exists():                                      # half-extracted folder that looks finished
+        shutil.rmtree(part)
+    part.mkdir(parents=True)
     with tarfile.open(arc, "r:gz") as tf:
-        tf.extractall(src, filter=only_the_dataset_folder)
+        tf.extractall(part, filter=only_the_dataset)
+    if not (part / "metadata.csv").exists():
+        raise SystemExit("the archive did not contain metadata.csv")
+    os.replace(part, ds)
     facts_path.write_text(json.dumps(facts, indent=2))
     if delete_archive:
         arc.unlink()

@@ -194,25 +194,44 @@ def test_wrong_row_count_is_refused(tmp_path):
 
 # ------------------------------------------------------------------ the archive
 
-def test_archive_is_size_checked_and_extracted_safely(tmp_path, monkeypatch):
+def _tar(path, members: dict[str, bytes]):
     import io
     import tarfile
-    src = tmp_path / "src"
-    src.mkdir()
-    arc = src / pp.ARCHIVE_NAME
-    with tarfile.open(arc, "w:gz") as tf:
-        data = b"a,b\n"
-        for name in ("camelyon17_v1.0/metadata.csv", "camelyon17_v1.0/../escape.txt", "other/x.txt"):
+    with tarfile.open(path, "w:gz") as tf:
+        for name, data in members.items():
             info = tarfile.TarInfo(name)
             info.size = len(data)
             tf.addfile(info, io.BytesIO(data))
+
+
+def test_archive_is_size_checked_and_extracted_safely(tmp_path, monkeypatch):
+    src = tmp_path / "src"
+    src.mkdir()
+    arc = src / pp.ARCHIVE_NAME
+    _tar(arc, {"./metadata.csv": b"a,b\n", "./../escape.txt": b"x", "other/x.txt": b"x"})
     with pytest.raises(SystemExit, match="incomplete or wrong"):
         pp.ensure_extracted(src, False)
     monkeypatch.setattr(pp, "ARCHIVE_SIZE", arc.stat().st_size)
-    with pytest.raises(ValueError, match="outside camelyon17_v1.0/"):
+    with pytest.raises(ValueError, match="not part of the dataset layout"):
         pp.ensure_extracted(src, False)
     assert not (src / "escape.txt").exists() and not (tmp_path / "escape.txt").exists()
-    assert not (src / "other").exists()
+    assert not (src / "camelyon17_v1.0").exists()                                  # nothing left that looks finished
+    arc.unlink()
+    _tar(arc, {"/abs/evil.txt": b"x"})
+    monkeypatch.setattr(pp, "ARCHIVE_SIZE", arc.stat().st_size)
+    with pytest.raises(ValueError, match="not part of the dataset layout"):
+        pp.ensure_extracted(src, False)
+
+
+def test_size_rule_tolerates_the_real_files_small_difference(tmp_path, monkeypatch):
+    src = tmp_path / "src"
+    src.mkdir()
+    arc = src / pp.ARCHIVE_NAME
+    import os
+    _tar(arc, {"./metadata.csv": b"a,b\n", "./RELEASE_v1.0.txt": os.urandom(200_000)})   # incompressible, so ~200 KB
+    monkeypatch.setattr(pp, "ARCHIVE_SIZE", round(arc.stat().st_size * 1.0005))  # a little off, like the real file
+    facts = pp.ensure_extracted(src, False)
+    assert facts["size_equals_wilds_listing"] is False and facts["download_authenticated"] is False
 
 
 def test_good_archive_extracts_records_sha_and_can_delete_itself(tmp_path, monkeypatch):
@@ -222,13 +241,14 @@ def test_good_archive_extracts_records_sha_and_can_delete_itself(tmp_path, monke
     src = tmp_path / "src"
     src.mkdir()
     arc = src / pp.ARCHIVE_NAME
-    with tarfile.open(arc, "w:gz") as tf:
-        tf.add(base / "camelyon17_v1.0", arcname="camelyon17_v1.0")
+    with tarfile.open(arc, "w:gz") as tf:                 # laid out like the real one: ./metadata.csv, ./patches/...
+        tf.add(base / "camelyon17_v1.0", arcname=".")
     monkeypatch.setattr(pp, "ARCHIVE_SIZE", arc.stat().st_size)
     sha = pp.hash_file(arc)
     facts = pp.ensure_extracted(src, True)
     assert facts["archive_sha256"] == sha and facts["download_authenticated"] is False
     assert (src / "camelyon17_v1.0" / "metadata.csv").exists() and not arc.exists()
+    assert list((src / "camelyon17_v1.0" / "patches").rglob("*.png"))
     assert pp.ensure_extracted(src, True)["archive_sha256"] == sha                   # second call: already extracted
 
 
