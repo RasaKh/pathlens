@@ -85,6 +85,7 @@ class SessionCfg:
     budget_hours: float
     probe_steps: int = 200
     allow_partial: bool = False
+    min_gpu_gb: float = 20.0          # the doc's floor for free GPU memory; 16 GB cards need it lowered explicitly
     runs: tuple[RunCfg, ...] = ()
 
 

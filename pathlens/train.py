@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -47,6 +47,7 @@ class RunInputs:
     test_rows: Tensor
     row_ids: np.ndarray     # stable ids for predictions (p1 image_id or p2 row)
     class_names: tuple[str, ...] = field(default=())    # for the model card (optional, see BUILD_LOG)
+    pred_extra: Mapping[str, np.ndarray] | None = None  # extra predictions.parquet columns, aligned with `images`
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,83 @@ def _done_result(out_dir: Path, cfg: RunCfg) -> RunResult | None:
                      m["images_per_second"], out_dir / "metrics.json")
 
 
+class _Stepper:
+    """The model's forward, optionally compiled. If compilation fails the first time it is used (forward or backward),
+    the run logs once and carries on in eager mode. Never exercised on a GPU yet."""
+
+    def __init__(self, model: nn.Module, compile_: bool) -> None:
+        self.model, self.fn, self.compiled = model, model, False
+        if compile_:
+            try:
+                self.fn, self.compiled = torch.compile(model), True
+            except Exception as e:                      # noqa: BLE001
+                log.warning("torch.compile failed (%s); using eager", e)
+
+    def __call__(self, x: Tensor) -> Tensor:
+        return self.fn(x)
+
+    def disable(self, why: Exception) -> None:
+        log.warning("compiled step failed (%s); using eager from here", str(why)[:200])
+        self.fn, self.compiled = self.model, False
+
+
+def _train_step(stepper: _Stepper, loss_fn, opt, x: Tensor, y: Tensor, use_bf16: bool, device, first: bool) -> Tensor:
+    """One forward/backward. On the first step of a compiled run a failure falls back to eager and is retried."""
+    def go() -> Tensor:
+        with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
+            loss = loss_fn(stepper(x), y)
+        loss.backward()
+        return loss
+
+    if first and stepper.compiled:
+        try:
+            return go()
+        except Exception as e:                          # noqa: BLE001
+            stepper.disable(e)
+            opt.zero_grad(set_to_none=True)
+    return go()
+
+
+def measure_throughput(cfg: RunCfg, images: Tensor, labels: Tensor, rows: Tensor, device, warmup: int = 20,
+                       steps: int = 50) -> dict:
+    """Training speed of `cfg` on real batches: `warmup` untimed steps (compilation, cuDNN), then `steps` timed ones.
+    Returns images_per_second and, on CUDA, the peak memory allocated (GB). Leaves no files behind."""
+    device = torch.device(device)
+    seed_all(cfg.seed)
+    g = torch.Generator(device=device).manual_seed(cfg.seed)
+    model = build_model(cfg.model).to(device, memory_format=torch.channels_last)
+    stepper = _Stepper(model, cfg.compile)
+    oc = cfg.optim
+    opt = torch.optim.AdamW(param_groups(model), lr=oc.peak_lr, weight_decay=oc.weight_decay)
+    loss_fn = nn.CrossEntropyLoss(label_smoothing=oc.label_smoothing)
+    sampler = DeviceSampler(rows.to(device), oc.batch_size, g, drop_last=True)
+    use_bf16 = device.type == "cuda" and cfg.amp_dtype == "bf16"
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+    model.train()
+    done, t0, seen = 0, 0.0, 0
+    while done < warmup + steps:
+        for idx in sampler.epoch():
+            if done == warmup:
+                if device.type == "cuda":
+                    torch.cuda.synchronize(device)
+                t0, seen = time.perf_counter(), 0
+            x = ((augment(images[idx], cfg.aug, g) - 0.5) / 0.25).contiguous(memory_format=torch.channels_last)
+            _train_step(stepper, loss_fn, opt, x, labels[idx], use_bf16, device, first=(done == 0))
+            opt.step()
+            opt.zero_grad(set_to_none=True)
+            done += 1
+            seen += len(idx)
+            if done >= warmup + steps:
+                break
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    dt = time.perf_counter() - t0
+    return {"images_per_second": seen / dt if dt > 0 else 0.0,
+            "peak_gb": torch.cuda.max_memory_allocated(device) / 2**30 if device.type == "cuda" else None,
+            "compiled": stepper.compiled}
+
+
 def _save_ckpt(path: Path, model, opt, sched, g, step: int, epoch: int, ema: float, elapsed: float,
                unstable: bool) -> None:
     tmp = path.with_suffix(".tmp")
@@ -126,12 +204,7 @@ def train_run(cfg: RunCfg, inputs: RunInputs, device, out_dir: Path, stop_flag: 
     seed_all(cfg.seed)
     g = torch.Generator(device=device).manual_seed(cfg.seed)
     model = build_model(cfg.model).to(device, memory_format=torch.channels_last)
-    step_fn: Callable = model
-    if cfg.compile:
-        try:
-            step_fn = torch.compile(model)
-        except Exception as e:                       # noqa: BLE001  (log once, fall back to eager)
-            log.warning("torch.compile failed (%s); using eager", e)
+    stepper = _Stepper(model, cfg.compile)
     oc = cfg.optim
     opt = torch.optim.AdamW(param_groups(model), lr=oc.peak_lr, betas=(0.9, 0.999), weight_decay=oc.weight_decay)
     sampler = DeviceSampler(inputs.train_rows.to(device), oc.batch_size, g, drop_last=True)
@@ -155,6 +228,7 @@ def train_run(cfg: RunCfg, inputs: RunInputs, device, out_dir: Path, stop_flag: 
         log.info("%s: resumed at epoch %d, step %d", rid, start_epoch, step)
 
     use_bf16 = cuda and cfg.amp_dtype == "bf16"
+    start_step = step
     t0 = time.perf_counter()
     seen_this_session = 0
     t_log, seen_at_log = t0, 0
@@ -164,9 +238,7 @@ def train_run(cfg: RunCfg, inputs: RunInputs, device, out_dir: Path, stop_flag: 
             for idx in sampler.epoch():
                 x = augment(images[idx], cfg.aug, g)
                 x = ((x - 0.5) / 0.25).contiguous(memory_format=torch.channels_last)
-                with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
-                    loss = loss_fn(step_fn(x), labels[idx])
-                loss.backward()
+                loss = _train_step(stepper, loss_fn, opt, x, labels[idx], use_bf16, device, first=(step == start_step))
                 opt.step()
                 sched.step()
                 opt.zero_grad(set_to_none=True)
@@ -203,6 +275,8 @@ def train_run(cfg: RunCfg, inputs: RunInputs, device, out_dir: Path, stop_flag: 
         metrics = multiclass_metrics(y, probs)
     else:
         df = pd.DataFrame({"row": ids, "label": y, "pred": pred, "p_tumour": probs[:, 1]})
+        for name, col in (inputs.pred_extra or {}).items():      # hospital, slide_key, patient joined from meta
+            df[name] = np.asarray(col)[inputs.test_rows.cpu().numpy()]
         metrics = binary_metrics(y, probs[:, 1])
     df.to_parquet(out_dir / "predictions.parquet")
 
