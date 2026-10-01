@@ -97,7 +97,7 @@ def test_levels_present_comes_from_the_data_manifest(tmp_path):
     base = tmp_path / "h3"
     make_home(base, levels=3)
     cfg = run_all.load_session(ROOT / "configs" / "phase2_gpu.yaml", base / "data" / "p2")
-    assert len(cfg.runs) == 30 and not any(r.level == "patient" for r in cfg.runs) and cfg.min_gpu_gb == 20.0
+    assert len(cfg.runs) == 30 and not any(r.level == "patient" for r in cfg.runs) and cfg.min_gpu_gb == 14.0
 
 
 def test_estimate_formula():
