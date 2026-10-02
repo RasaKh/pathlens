@@ -16,7 +16,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-MANIFEST = "runs/session_manifest.json"
+MANIFESTS = ("runs/session_manifest.json", "runs_dry/session_manifest.json")      # a real session, a dry run
 
 
 def sha256(path: Path) -> str:
@@ -38,17 +38,18 @@ def verify(archive: Path, expected_sha: str) -> list[str]:
         tmp_path = Path(tmp)
         with archive.open("rb") as fh, zstd.ZstdDecompressor().stream_reader(fh) as zr, tarfile.open(fileobj=zr, mode="r|") as tf:
             tf.extractall(tmp_path, filter="data")
-        mf = tmp_path / MANIFEST
-        if not mf.exists():
-            return [f"{MANIFEST} is not in the archive"]
-        listed = json.loads(mf.read_text())["files"]
+        found = [m for m in MANIFESTS if (tmp_path / m).exists()]
+        if not found:
+            return [f"none of {MANIFESTS} is in the archive"]
+        manifest = found[0]
+        listed = json.loads((tmp_path / manifest).read_text())["files"]
         for rel, rec in listed.items():
             p = tmp_path / rel
             if not p.is_file():
                 problems.append(f"{rel}: missing")
             elif p.stat().st_size != rec["bytes"] or sha256(p) != rec["sha256"]:
                 problems.append(f"{rel}: size or sha256 differs from the manifest")
-        extra = {str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_file()} - set(listed) - {MANIFEST}
+        extra = {str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_file()} - set(listed) - {manifest}
         problems += [f"{rel}: in the archive but not in the manifest" for rel in sorted(extra)]
     return problems
 

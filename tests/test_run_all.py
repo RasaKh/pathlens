@@ -141,8 +141,7 @@ def test_dry_run_end_to_end_then_skip_then_verify(env):
     assert (runs / "session.log").read_text().count("already done, skipped") == 5
 
 
-def test_verify_artifacts_accepts_the_pack_and_rejects_damage(env, tmp_path, monkeypatch):
-    monkeypatch.setattr(va, "MANIFEST", "runs_dry/session_manifest.json")      # the dry run keeps its files under runs_dry/
+def test_verify_artifacts_accepts_the_pack_and_rejects_damage(env):
     assert run_all.run_session(cfg_file(env), dry_run=True) == run_all.EXIT_OK
     archive = env / "artifacts_phase2_dry.tar.zst"
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -151,11 +150,10 @@ def test_verify_artifacts_accepts_the_pack_and_rejects_damage(env, tmp_path, mon
     assert va.verify(archive, digest) == []
 
 
-def test_a_damaged_member_is_caught_by_the_manifest(env, monkeypatch):
+def test_a_damaged_member_is_caught_by_the_manifest(env):
     import io
 
     import zstandard as zstd
-    monkeypatch.setattr(va, "MANIFEST", "runs_dry/session_manifest.json")
     run_all.run_session(cfg_file(env), dry_run=True)
     archive = env / "artifacts_phase2_dry.tar.zst"
     raw = zstd.ZstdDecompressor().stream_reader(archive.open("rb")).read()
