@@ -54,6 +54,7 @@ def load_session(config_path: Path, p2_dir: Path) -> SessionCfg:
     levels_present = int(man["files"]["splits.parquet"]["levels_present"])
     return SessionCfg(budget_hours=float(spec["budget_hours"]), probe_steps=int(spec.get("probe_steps", 200)),
                       allow_partial=bool(spec.get("allow_partial", False)), min_gpu_gb=float(spec.get("min_gpu_gb", 20.0)),
+                      images_on=str(spec.get("images_on", "auto")),
                       runs=expand_queue(config_path, levels_present))
 
 
@@ -90,9 +91,11 @@ class Phase2Data:
     extra: dict[str, np.ndarray]
 
 
-def load_phase2(p2_dir: Path, device) -> Phase2Data:
+def load_phase2(p2_dir: Path, device, images_on: str = "device") -> Phase2Data:
+    """images_on "device": the whole array on `device` (fast; needs the memory). "host": in ordinary RAM, each batch
+    copied over (the doc assumed a big card; a 16 GB card cannot hold the images and a batch of 512)."""
     store = P2Store(p2_dir.parent, mmap=True)
-    images = store.to_device(device)
+    images = store.to_device(device if images_on == "device" else "cpu")
     meta = store.meta
     splits = pd.read_parquet(p2_dir / "splits.parquet")
     if not (splits["row"].to_numpy() == meta["row"].to_numpy()).all():
@@ -144,8 +147,8 @@ def pooled_features(model, images: torch.Tensor, rows: np.ndarray, device, batch
         return np.zeros((0, model.cfg.widths[3]), dtype=np.float32)
     outs = []
     for a in range(0, len(rows), batch):
-        idx = torch.from_numpy(rows[a:a + batch]).to(device)
-        x = to_model_input(images[idx]).contiguous(memory_format=torch.channels_last)
+        idx = torch.from_numpy(rows[a:a + batch]).to(images.device)
+        x = to_model_input(images[idx].to(device)).contiguous(memory_format=torch.channels_last)
         outs.append(model.forward_features(x)[1].float().cpu())
     return torch.cat(outs).numpy()
 
@@ -260,20 +263,32 @@ def run_session(config_path: Path, *, dry_run: bool = False, probe_only: bool = 
         return EXIT_DATA
     s.log("data verified against data_manifest.json")
 
-    t0 = time.perf_counter()
-    data = load_phase2(p2_dir, dev)
-    s.log(f"images on {dev}: {tuple(data.images.shape)} in {time.perf_counter() - t0:.0f} s")
-
-    first = runs[0]
-    tr0, _ = split_rows(first, data, dry_run)
-    warm, steps = (2, 3) if dry_run else (20, cfg.probe_steps)
-    probe = measure_throughput(first, data.images, data.labels, torch.from_numpy(tr0).to(dev), dev, warmup=warm, steps=steps)
+    placement = "host" if cfg.images_on == "host" else "device"
+    while True:
+        t0 = time.perf_counter()
+        data = load_phase2(p2_dir, dev, placement)
+        s.log(f"images on {data.images.device} ({placement}): {tuple(data.images.shape)} in {time.perf_counter() - t0:.0f} s")
+        first = runs[0]
+        tr0, _ = split_rows(first, data, dry_run)
+        warm, steps = (2, 3) if dry_run else (20, cfg.probe_steps)
+        try:
+            probe = measure_throughput(first, data.images, data.labels, torch.from_numpy(tr0).to(dev), dev, warmup=warm, steps=steps)
+            break
+        except torch.OutOfMemoryError:
+            if placement == "host" or cfg.images_on == "device":
+                raise
+            s.log("out of GPU memory with the images on the device; moving them to host memory and probing again")
+            del data
+            if dev.type == "cuda":
+                torch.cuda.empty_cache()
+            placement = "host"
+    probe["images_on"] = placement
     img_s = probe["images_per_second"]
     pending = [r for r in runs if not _is_done(runs_root, r)]
     est = {run_id(r): estimate_seconds(r, *(len(a) for a in split_rows(r, data, dry_run)), img_s) for r in pending}
     projected = sum(est.values()) + OVERHEAD_S
     budget_s = cfg.budget_hours * 3600
-    s.log(f"probe: {img_s:.0f} img/s, peak {probe['peak_gb']} GB, compiled {probe['compiled']}; projected "
+    s.log(f"probe: {img_s:.0f} img/s, peak {probe['peak_gb']} GB, compiled {probe['compiled']}, images on {placement}; projected "
           f"{projected / 3600:.2f} h for {len(pending)} pending runs, budget {cfg.budget_hours} h")
     if probe_only:
         return EXIT_OK

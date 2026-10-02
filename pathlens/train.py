@@ -68,7 +68,7 @@ def predict(model: nn.Module, images: Tensor, rows: Tensor, device, batch: int =
     model.eval()
     out = []
     for i in range(0, len(rows), batch):
-        x = to_model_input(images[rows[i:i + batch]].to(device)).contiguous(memory_format=torch.channels_last)
+        x = to_model_input(images[rows[i:i + batch].to(images.device)].to(device)).contiguous(memory_format=torch.channels_last)
         with torch.autocast(device_type=torch.device(device).type, dtype=torch.bfloat16, enabled=bf16):
             logits = model(x)
         out.append(logits.float().softmax(1).cpu())
@@ -118,6 +118,13 @@ class _Stepper:
         self.fn, self.compiled = self.model, False
 
 
+def gather_batch(images: Tensor, idx: Tensor, device) -> Tensor:
+    """uint8 [B,H,W,3] on `device`, whether the full array lives there or in host memory."""
+    if images.device == torch.device(device):
+        return images[idx]
+    return images[idx.to(images.device)].to(device, non_blocking=True)
+
+
 def _train_step(stepper: _Stepper, loss_fn, opt, x: Tensor, y: Tensor, use_bf16: bool, device, first: bool) -> Tensor:
     """One forward/backward. On the first step of a compiled run a failure falls back to eager and is retried."""
     def go() -> Tensor:
@@ -129,6 +136,8 @@ def _train_step(stepper: _Stepper, loss_fn, opt, x: Tensor, y: Tensor, use_bf16:
     if first and stepper.compiled:
         try:
             return go()
+        except torch.OutOfMemoryError:
+            raise                                       # not a compiler problem; eager would only run out too
         except Exception as e:                          # noqa: BLE001
             stepper.disable(e)
             opt.zero_grad(set_to_none=True)
@@ -159,7 +168,7 @@ def measure_throughput(cfg: RunCfg, images: Tensor, labels: Tensor, rows: Tensor
                 if device.type == "cuda":
                     torch.cuda.synchronize(device)
                 t0, seen = time.perf_counter(), 0
-            x = ((augment(images[idx], cfg.aug, g) - 0.5) / 0.25).contiguous(memory_format=torch.channels_last)
+            x = ((augment(gather_batch(images, idx, device), cfg.aug, g) - 0.5) / 0.25).contiguous(memory_format=torch.channels_last)
             _train_step(stepper, loss_fn, opt, x, labels[idx], use_bf16, device, first=(done == 0))
             opt.step()
             opt.zero_grad(set_to_none=True)
@@ -211,7 +220,7 @@ def train_run(cfg: RunCfg, inputs: RunInputs, device, out_dir: Path, stop_flag: 
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=oc.peak_lr, total_steps=oc.epochs * len(sampler),
                                                 pct_start=oc.pct_start, div_factor=25, final_div_factor=1e4)
     loss_fn = nn.CrossEntropyLoss(label_smoothing=oc.label_smoothing)
-    images, labels = inputs.images.to(device), inputs.labels.to(device)
+    images, labels = inputs.images, inputs.labels.to(device)      # images stay where the caller put them
 
     step, start_epoch, ema, elapsed, unstable = 0, 0, 0.0, 0.0, False
     ckpt = out_dir / "ckpt.pt"
@@ -236,7 +245,7 @@ def train_run(cfg: RunCfg, inputs: RunInputs, device, out_dir: Path, stop_flag: 
     with open(out_dir / "train_log.jsonl", "a") as logf:
         for epoch in range(start_epoch, oc.epochs):
             for idx in sampler.epoch():
-                x = augment(images[idx], cfg.aug, g)
+                x = augment(gather_batch(images, idx, device), cfg.aug, g)
                 x = ((x - 0.5) / 0.25).contiguous(memory_format=torch.channels_last)
                 loss = _train_step(stepper, loss_fn, opt, x, labels[idx], use_bf16, device, first=(step == start_step))
                 opt.step()

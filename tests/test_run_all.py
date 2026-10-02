@@ -262,3 +262,80 @@ def test_dry_run_config_is_one_small_epoch_in_fp32():
     d = run_all.dry_run_cfg(r)
     assert d.optim.epochs == 1 and d.optim.batch_size == 32 and d.compile is False and d.amp_dtype == "fp32"
     assert d.optim.peak_lr == r.optim.peak_lr and d.model == r.model
+
+
+# ------------------------------------------------------------------ images that do not fit on the GPU
+
+def test_out_of_memory_is_not_mistaken_for_a_compiler_failure():
+    from pathlens import train
+
+    class Boom:
+        compiled = True
+        disabled = False
+
+        def __call__(self, x):
+            raise torch.OutOfMemoryError("CUDA out of memory (simulated)")
+
+        def disable(self, why):
+            self.disabled = True
+
+    st = Boom()
+    with pytest.raises(torch.OutOfMemoryError):
+        train._train_step(st, torch.nn.CrossEntropyLoss(), None, torch.zeros(2, 3, 4, 4), torch.zeros(2, dtype=torch.long),
+                          False, torch.device("cpu"), first=True)
+    assert st.disabled is False                                 # no pointless fall back to eager
+
+
+def test_a_failed_compile_falls_back_to_eager_and_the_step_still_runs():
+    from pathlens import train
+
+    model = torch.nn.Linear(4, 2)
+
+    class Flaky:
+        compiled = True
+
+        def __init__(self):
+            self.fn = lambda x: (_ for _ in ()).throw(RuntimeError("inductor exploded"))
+
+        def __call__(self, x):
+            return self.fn(x)
+
+        def disable(self, why):
+            self.fn, self.compiled = model, False
+
+    opt = torch.optim.SGD(model.parameters(), lr=0.1)
+    loss = train._train_step(Flaky(), torch.nn.CrossEntropyLoss(), opt, torch.randn(3, 4), torch.tensor([0, 1, 0]),
+                             False, torch.device("cpu"), first=True)
+    assert torch.isfinite(loss) and model.weight.grad is not None
+
+
+def test_images_that_do_not_fit_move_to_host_memory_and_the_probe_is_repeated(env, monkeypatch):
+    real = run_all.measure_throughput
+    calls = []
+
+    def oom_once(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise torch.OutOfMemoryError("CUDA out of memory (simulated)")
+        return real(*a, **k)
+
+    monkeypatch.setattr(run_all, "measure_throughput", oom_once)
+    assert run_all.run_session(cfg_file(env), dry_run=True) == run_all.EXIT_OK
+    log = (env / "runs_dry" / "session.log").read_text()
+    assert "moving them to host memory and probing again" in log and log.count("images on cpu (") == 2
+    assert json.loads((env / "runs_dry" / "session_manifest.json").read_text())["probe"]["images_on"] == "host"
+
+
+def test_images_on_device_is_not_second_guessed(env, monkeypatch):
+    p = cfg_file(env)
+    p.write_text(p.read_text() + "images_on: device\n")
+    monkeypatch.setattr(run_all, "measure_throughput", lambda *a, **k: (_ for _ in ()).throw(torch.OutOfMemoryError("x")))
+    with pytest.raises(torch.OutOfMemoryError):
+        run_all.run_session(p, dry_run=True)
+
+
+def test_gather_batch_and_predict_work_with_images_in_either_place():
+    from pathlens.train import gather_batch
+    imgs = torch.randint(0, 255, (10, 4, 4, 3), dtype=torch.uint8)
+    idx = torch.tensor([7, 2, 2])
+    assert torch.equal(gather_batch(imgs, idx, "cpu"), imgs[idx]) and gather_batch(imgs, idx, "cpu").dtype == torch.uint8

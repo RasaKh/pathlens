@@ -1,6 +1,7 @@
 # Shape, not final values (architecture doc, "Configuration and run identity").
 budget_hours: 4
 min_gpu_gb: 14       # the doc says 20; the rented RTX 5060 Ti has 16 GB (the images alone take 11.7 GB). The probe reports the real peak.
+images_on: auto      # device if it fits, else host memory (a 16 GB card cannot hold the images and a batch of 512)
 model: {widths: [32, 64, 128, 256], num_classes: 2}
 optim: {epochs: 6, batch_size: 512, peak_lr: 3.0e-3}
 queue:
