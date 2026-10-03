@@ -176,3 +176,17 @@ def test_load_p1_round_trip_and_refusals(tmp_path):
         load_p1("test", poisoned=True, root=tmp_path)
     with pytest.raises(ValueError, match="split must be"):
         load_p1("dev", root=tmp_path)
+
+
+def test_usable_cpus_respects_a_container_quota(tmp_path, monkeypatch):
+    from pathlens import train
+    monkeypatch.setattr(train.os, "process_cpu_count", lambda: 256)
+    fake = tmp_path / "cpu.max"
+    fake.write_text("3071999 100000\n")                                 # the rented box: about 30 CPUs
+    real_path = train.Path
+    monkeypatch.setattr(train, "Path", lambda p: fake if p == "/sys/fs/cgroup/cpu.max" else real_path(p))
+    assert train.usable_cpus() == 30
+    fake.write_text("max 100000\n")
+    assert train.usable_cpus() == 256
+    fake.write_text("garbage")
+    assert train.usable_cpus() == 256

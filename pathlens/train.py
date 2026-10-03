@@ -35,6 +35,19 @@ EMA_DECAY = 0.98
 PREDICT_BATCH = 2048
 
 
+def usable_cpus() -> int:
+    """CPUs this process may really use: the affinity count, capped by a container's CPU quota (cgroup v2 cpu.max).
+    Asking for every host core inside a quota-limited container makes the threads fight each other."""
+    n = os.process_cpu_count() or 1
+    try:
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()
+        if quota != "max":
+            n = min(n, max(1, int(int(quota) / int(period))))
+    except (OSError, ValueError):
+        pass
+    return n
+
+
 class Interrupted(Exception):
     """Raised after the checkpoint is saved when stop_flag() asks the run to stop."""
 
@@ -208,7 +221,7 @@ def train_run(cfg: RunCfg, inputs: RunInputs, device, out_dir: Path, stop_flag: 
     chash, rid = config_hash(cfg), run_id(cfg)
     _write_json(out_dir / "config.json", {**dataclasses.asdict(cfg), "config_hash": chash})
     if device.type == "cpu":
-        torch.set_num_threads(os.cpu_count() or 1)
+        torch.set_num_threads(usable_cpus())
 
     seed_all(cfg.seed)
     g = torch.Generator(device=device).manual_seed(cfg.seed)
