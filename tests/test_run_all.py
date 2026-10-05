@@ -337,3 +337,20 @@ def test_gather_batch_and_predict_work_with_images_in_either_place():
     imgs = torch.randint(0, 255, (10, 4, 4, 3), dtype=torch.uint8)
     idx = torch.tensor([7, 2, 2])
     assert torch.equal(gather_batch(imgs, idx, "cpu"), imgs[idx]) and gather_batch(imgs, idx, "cpu").dtype == torch.uint8
+
+
+# ------------------------------------------------------------------ check mode: re-run chosen runs elsewhere
+
+def test_only_runs_the_named_runs_into_another_folder_without_features_or_pack(env):
+    cfg = cfg_file(env)
+    out = env / "runs_check"
+    code = run_all.run_session(cfg, dry_run=True, runs_root=out, only=("p2-patch-f2-plain-s0", "p2-hospital-f2-plain-s0"))
+    assert code == run_all.EXIT_OK
+    assert sorted(p.parent.name for p in out.glob("p2-*/DONE")) == ["p2-hospital-f2-plain-s0", "p2-patch-f2-plain-s0"]
+    assert "check mode: 2 run(s) done, no features and no pack" in (out / "session.log").read_text()
+    assert not (env / "artifacts_phase2_dry.tar.zst").exists() and not (env / "analysis_inputs_dry").exists()
+
+
+def test_only_refuses_a_run_id_that_is_not_in_the_queue(env):
+    with pytest.raises(SystemExit, match="not in the queue"):
+        run_all.run_session(cfg_file(env), dry_run=True, only=("p2-hospital-f9-plain-s0",))

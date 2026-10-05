@@ -227,7 +227,8 @@ class Session:
 
 def run_session(config_path: Path, *, dry_run: bool = False, probe_only: bool = False, device: str | None = None,
                 runs_root: Path | None = None, p2_dir: Path | None = None, analysis_dir: Path | None = None,
-                stop_flag: Callable[[], bool] = lambda: False) -> int:
+                stop_flag: Callable[[], bool] = lambda: False, only: tuple[str, ...] | None = None) -> int:
+    """`only`: run just these run ids (a check or a re-run). No features and no pack in that mode."""
     root = home()
     p2_dir = p2_dir or root / "data" / "p2"
     runs_root = runs_root or (root / ("runs_dry" if dry_run else "runs"))
@@ -238,6 +239,11 @@ def run_session(config_path: Path, *, dry_run: bool = False, probe_only: bool = 
 
     cfg = load_session(config_path, p2_dir)
     runs = tuple(dry_run_cfg(r) for r in cfg.runs) if dry_run else cfg.runs
+    if only is not None:
+        unknown = sorted(set(only) - {run_id(r) for r in runs})
+        if unknown:
+            raise SystemExit(f"--only names runs that are not in the queue: {unknown}")
+        runs = tuple(r for r in runs if run_id(r) in only)
     (runs_root / "queue.json").write_text(json.dumps([dataclasses.asdict(r) for r in runs], indent=2))
     s.log(f"queue: {len(runs)} runs; budget {cfg.budget_hours} h{' (dry run)' if dry_run else ''}")
 
@@ -328,6 +334,9 @@ def run_session(config_path: Path, *, dry_run: bool = False, probe_only: bool = 
         wall_times[rid] = res.wall_seconds
         s.log(f"{rid}: {res.wall_seconds:.0f} s, held-out AUROC {m['metrics']['auroc']:.4f}, model {res.model_hash}")
 
+    if only is not None:
+        s.log(f"check mode: {len(runs)} run(s) done, no features and no pack")
+        return EXIT_RUN_FAILED if failed else EXIT_OK
     features_done = extract_features(data, runs_root, analysis_dir, dev, 4 if dry_run else MAP_PER_CELL,
                                      10 if dry_run else PROBE_PER_CELL, s.log)
     info = {"gpu": gpu_name, "driver": _driver(), "cuda": torch.version.cuda, "torch": torch.__version__,
@@ -358,11 +367,14 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--probe-only", action="store_true", help="measure speed, print the projection, exit 0")
     ap.add_argument("--device", default=None, choices=("cpu", "cuda"))
+    ap.add_argument("--only", nargs="+", default=None, help="run just these run ids (a check or a re-run)")
+    ap.add_argument("--runs-dir", type=Path, default=None, help="write the runs here instead of <home>/runs")
     args = ap.parse_args()
     stop = {"flag": False}
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.update(flag=True))
     raise SystemExit(run_session(args.config, dry_run=args.dry_run, probe_only=args.probe_only, device=args.device,
+                                 runs_root=args.runs_dir, only=tuple(args.only) if args.only else None,
                                  stop_flag=lambda: stop["flag"]))
 
 
