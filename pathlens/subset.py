@@ -45,3 +45,26 @@ def curation_rows(meta: pd.DataFrame, seed: int = CURATE_SEED, picker_per_label:
 
 def wanted_rows(map_rows: np.ndarray, probe_rows: np.ndarray, stain_rows: np.ndarray, curated: dict[str, np.ndarray]) -> np.ndarray:
     return np.unique(np.concatenate([map_rows, probe_rows, stain_rows, *curated.values()])).astype(np.int64)
+
+
+class Subset:
+    """The re-extracted patches: `rows` (sorted row numbers) and `images` [n,96,96,3] uint8, read from data/p2."""
+
+    def __init__(self, p2_dir) -> None:
+        from pathlib import Path
+
+        p2 = Path(p2_dir)
+        self.rows = np.load(p2 / "subset_rows.npy")
+        self.images = np.load(p2 / "subset_u8.npy", mmap_mode="r")
+        if len(self.rows) != len(self.images):
+            raise ValueError("subset_rows.npy and subset_u8.npy differ in length")
+
+    def get(self, rows: np.ndarray) -> np.ndarray:
+        """uint8 [len(rows),96,96,3] in the order asked; a KeyError names the first row that was not extracted."""
+        rows = np.asarray(rows, dtype=np.int64)
+        idx = np.searchsorted(self.rows, rows)
+        idx = np.minimum(idx, len(self.rows) - 1)
+        bad = self.rows[idx] != rows
+        if bad.any():
+            raise KeyError(f"row {int(rows[np.flatnonzero(bad)[0]])} is not in the extracted subset")
+        return np.asarray(self.images[idx])

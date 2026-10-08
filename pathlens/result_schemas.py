@@ -98,3 +98,51 @@ def validate_p2_repair(d: dict) -> None:
         if abs((aug - plain) - delta) > 1e-6:
             raise SchemaError(f"{w}: delta {delta} is not aug - plain ({aug - plain})")
         _interval(r["delta_ci"], w + ".delta_ci", delta)
+
+
+def validate_p2_probes(d: dict) -> None:
+    _common(d, "p2_probes")
+    probes = _need(d, "probes", "p2_probes")
+    if [p.get("name") for p in probes] != ["colour_histogram", "plain_features", "aug_features"]:
+        raise SchemaError(f"p2_probes: probes are {[p.get('name') for p in probes]}")
+    chance = _finite(_need(d, "chance", "p2_probes"), "p2_probes.chance")
+    for p in probes:
+        w = f"p2_probes.{p['name']}"
+        for k in ("accuracy_mean", "accuracy_sd", "balanced_accuracy_mean", "balanced_accuracy_sd"):
+            v = _finite(_need(p, k, w), f"{w}.{k}")
+            if not 0 <= v <= 1:
+                raise SchemaError(f"{w}.{k}: {v} is not in [0, 1]")
+        cm = _need(p, "confusion", w)
+        if len(cm) != 5 or any(len(r) != 5 for r in cm):
+            raise SchemaError(f"{w}: the confusion matrix must be 5 x 5")
+        if sum(map(sum, cm)) != _need(p, "n", w):
+            raise SchemaError(f"{w}: the confusion matrix does not add up to n")
+    del chance
+
+
+def validate_p2_map(d: dict) -> None:
+    for k in ("row", "x", "y", "hospital", "label"):
+        _need(d, k, "p2_map")
+    n = len(d["row"])
+    if n == 0 or any(len(d[k]) != n for k in ("x", "y", "hospital", "label")):
+        raise SchemaError("p2_map: the columns are empty or differ in length")
+    for k in ("x", "y"):
+        for v in d[k]:
+            if not 0.0 <= _finite(v, f"p2_map.{k}") <= 1.0:
+                raise SchemaError(f"p2_map.{k}: {v} is outside [0, 1]")
+    if not set(d["hospital"]) <= {0, 1, 2, 3, 4} or not set(d["label"]) <= {0, 1}:
+        raise SchemaError("p2_map: hospital must be 0..4 and label 0 or 1")
+    if len(set(d["row"])) != n:
+        raise SchemaError("p2_map: a row appears twice")
+
+
+def validate_stain_stats(d: dict) -> None:
+    if sorted(d) != ["0", "1", "2", "3", "4"]:
+        raise SchemaError(f"stain_stats: hospitals are {sorted(d)}")
+    for h, r in d.items():
+        for k in ("mean", "std"):
+            v = _need(r, k, f"stain_stats.{h}")
+            if len(v) != 3 or any(_finite(x, f"stain_stats.{h}.{k}") < 0 for x in v):
+                raise SchemaError(f"stain_stats.{h}.{k}: expected three non-negative numbers")
+        if _need(r, "n_pixels", f"stain_stats.{h}") <= 0:
+            raise SchemaError(f"stain_stats.{h}: n_pixels must be positive")
