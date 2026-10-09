@@ -146,3 +146,25 @@ def validate_stain_stats(d: dict) -> None:
                 raise SchemaError(f"stain_stats.{h}.{k}: expected three non-negative numbers")
         if _need(r, "n_pixels", f"stain_stats.{h}") <= 0:
             raise SchemaError(f"stain_stats.{h}: n_pixels must be positive")
+
+
+def validate_annotations(d: dict) -> None:
+    _common(d, "annotations")
+    entries = _need(d, "entries", "annotations")
+    s = _need(d, "summary", "annotations")
+    for k in ("all", "tumour", "normal", "model_correct", "model_wrong"):
+        b = _need(s, k, "annotations.summary")
+        _need(b, "n", f"annotations.summary.{k}")
+        for m in ("pointing_hit", "top10_share", "chance"):
+            v = _need(b, m, f"annotations.summary.{k}")
+            if v is not None and not 0.0 <= _finite(v, f"annotations.summary.{k}.{m}") <= 1.0:
+                raise SchemaError(f"annotations.summary.{k}.{m}: {v} is not in [0, 1]")
+    if s["n_annotated"] != len(entries) or s["n_scored"] != sum(e["scored"] for e in entries):
+        raise SchemaError("annotations: the summary counts do not match the entries")
+    for e in entries:
+        for k in ("row", "label", "verdict", "note", "scored", "chance", "pred", "model_correct"):
+            _need(e, k, "annotations.entries")
+        if e["verdict"] not in ("agree", "disagree", "unsure"):
+            raise SchemaError(f"annotations: row {e['row']} has verdict {e['verdict']!r}")
+        if e["scored"] and not 0.0 <= _finite(e["top10_share"], "annotations.top10_share") <= 1.0:
+            raise SchemaError(f"annotations: row {e['row']} top10_share out of range")
