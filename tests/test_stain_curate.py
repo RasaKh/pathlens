@@ -114,3 +114,13 @@ def test_a_second_curation_with_another_seed_is_refused_unless_forced(curation_w
     cu.curate(w["sub"], w["meta"], w["out"], seed=1, force=True)
     assert sorted(p.name for p in (w["out"] / "annotate").glob("*.png")) != first
     assert len(list((w["out"] / "annotate").glob("*.png"))) == 40                       # the old set was removed, not left behind
+
+
+def test_threshold_report_ignores_pure_black_pixels():
+    x = np.concatenate([patches(0.09, 0.10, 0.01, 40), np.full((10, 32, 32, 3), 255, np.uint8)])
+    black = x.copy()
+    black[:, 8:10, :4] = 0                                                  # a few pure black pixels in every patch
+    clean, dirty = ss.threshold_report(lambda r: x[r], np.arange(50), n_patches=50), ss.threshold_report(lambda r: black[r], np.arange(50), n_patches=50)
+    assert dirty["otsu_raw_including_black_pixels"] > clean["otsu_on_camelyon"] + 0.05      # the black mode drags the raw threshold up
+    assert abs(dirty["otsu_on_camelyon"] - clean["otsu_on_camelyon"]) < 0.01   # the reported one does not move
+    assert dirty["share_extreme_pixels"] > 0 and clean["share_extreme_pixels"] == 0

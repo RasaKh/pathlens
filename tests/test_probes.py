@@ -60,7 +60,7 @@ def make_features(separation: float, n_slides_per_h: int = 10, per_slide: int = 
 def test_probe_finds_hospital_information_when_it_is_there_and_not_when_it_is_not():
     strong = run_probe(*make_features(3.0))
     none = run_probe(*make_features(0.0))
-    assert strong.accuracy_mean > 0.9 and strong.chance == 0.2 and strong.n == 1500 and strong.n_folds == 5
+    assert strong.accuracy_mean > 0.9 and strong.chance == 0.2 and strong.n == 1500 and strong.n_folds == 5 and len(strong.fold_accuracy) == 5
     assert abs(none.accuracy_mean - 0.2) < 0.08 and abs(none.balanced_accuracy_mean - 0.2) < 0.08
     cm = np.array(strong.confusion)
     assert cm.shape == (5, 5) and cm.sum() == 1500 and np.trace(cm) / cm.sum() == pytest.approx(strong.accuracy_mean, abs=0.02)

@@ -27,6 +27,7 @@ from pathlens.subset import Subset, stain_sample_rows
 from pathlens.tensors import to_unit
 
 BATCH = 1000
+EXTREME_OD = 0.5          # summed optical density above this is treated as black/artifact when finding Otsu's threshold
 
 
 def hospital_stats(images_for_rows, rows: np.ndarray, thresh: float = TISSUE_THRESH) -> dict:
@@ -59,8 +60,12 @@ def threshold_report(images_for_rows, rows: np.ndarray, n_patches: int = 4000, s
         sums.append(tot.flatten()[::7].numpy())
         frac.append((tot > TISSUE_THRESH).float().mean(dim=(1, 2)).numpy())
     allsum, frac = np.concatenate(sums), np.concatenate(frac)
-    otsu = float(threshold_otsu(allsum))
+    # About 0.2% of Camelyon pixels are pure black (summed OD about 2.1): a second mode that drags Otsu's threshold to about 0.84.
+    # The reported threshold excludes pixels above EXTREME_OD; the raw value is kept for the record.
+    otsu = float(threshold_otsu(allsum[allsum <= EXTREME_OD]))
     out = {"n_patches": len(pick), "default_threshold": TISSUE_THRESH, "otsu_on_camelyon": otsu,
+           "otsu_raw_including_black_pixels": float(threshold_otsu(allsum)),
+           "share_extreme_pixels": float((allsum > EXTREME_OD).mean()), "extreme_od": EXTREME_OD,
            "median_tissue_fraction_at_default": float(np.median(frac)),
            "share_patches_match_stats_would_skip_at_default": float((frac < MIN_TISSUE_FRACTION).mean()),
            "percentiles_of_summed_od": {str(q): float(np.percentile(allsum, q)) for q in (50, 75, 90, 95, 99)}}

@@ -55,6 +55,8 @@ class ProbeResult:
     chance: float
     n: int
     n_folds: int
+    fold_accuracy: list[float]           # the five folds, in order: lets two probes be compared fold by fold
+    fold_balanced_accuracy: list[float]
 
 
 def run_probe(X: np.ndarray, hospital: np.ndarray, slide_key: np.ndarray, seed: int = 0, n_folds: int = 5) -> ProbeResult:
@@ -74,4 +76,4 @@ def run_probe(X: np.ndarray, hospital: np.ndarray, slide_key: np.ndarray, seed: 
         baccs.append(float(balanced_accuracy_score(hospital[te], pred)))
         cm += confusion_matrix(hospital[te], pred, labels=classes)
     return ProbeResult(float(np.mean(accs)), float(np.std(accs)), float(np.mean(baccs)), float(np.std(baccs)),
-                       cm.tolist(), 1.0 / len(classes), len(X), n_folds)
+                       cm.tolist(), 1.0 / len(classes), len(X), n_folds, accs, baccs)
