@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 import torch
@@ -57,7 +56,7 @@ def test_home_falls_back_to_home_directory(monkeypatch):
     monkeypatch.delenv(paths.ENV_VAR, raising=False)
     paths.home.cache_clear()
     try:
-        assert paths.home() == Path.home() / "pathlens"
+        assert paths.home() == paths.DEFAULT_HOME
     finally:
         paths.home.cache_clear()
 

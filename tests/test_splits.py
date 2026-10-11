@@ -11,7 +11,7 @@ import pytest
 
 from pathlens.splits import GROUP_KEY, LEVELS, fold_rows, make_splits, split_report
 
-REAL = Path.home() / "pathlens" / "data" / "p2" / "meta.parquet"
+REAL = Path(__file__).resolve().parent.parent / "workdir" / "data" / "p2" / "meta.parquet"
 
 
 def synthetic(per_slide: int = 12, seed: int = 0) -> pd.DataFrame:
