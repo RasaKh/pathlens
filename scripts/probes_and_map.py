@@ -34,7 +34,7 @@ def build_probes(meta: pd.DataFrame, probe_rows: np.ndarray, hist_images, feats:
     m = meta.set_index("row").loc[probe_rows]
     hosp, slide = m["hospital"].to_numpy(), m["slide_key"].to_numpy()
     hist = np.vstack([colour_histogram(hist_images(probe_rows[a:a + 1000])) for a in range(0, len(probe_rows), 1000)])
-    spec = [("colour_histogram", "the patch's own colour histogram, no network", hist),
+    spec = [("colour_histogram", "the patch's own color histogram, no network", hist),
             ("plain_features", "the plain model's 256 features", feats["plain"]),
             ("aug_features", "the stain-augmented model's 256 features", feats["aug"])]
     out = []
