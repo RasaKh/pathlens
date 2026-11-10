@@ -168,3 +168,57 @@ def validate_annotations(d: dict) -> None:
             raise SchemaError(f"annotations: row {e['row']} has verdict {e['verdict']!r}")
         if e["scored"] and not 0.0 <= _finite(e["top10_share"], "annotations.top10_share") <= 1.0:
             raise SchemaError(f"annotations: row {e['row']} top10_share out of range")
+
+
+def _est_ci(d: Any, where: str) -> None:
+    _interval(_need(d, "ci", where), where + ".ci", _finite(_need(d, "est", where), where + ".est"))
+
+
+def validate_p3_results(d: dict) -> None:
+    """p3_results.json: Phikon features vs the Phase 2 CNN (RQ1 to RQ4)."""
+    _common(d, "p3_results")
+    _need(d, "features_sha256", "p3_results")
+    if [e.get("level") for e in _need(d, "levels", "p3_results")] != ["patch", "slide", "patient", "hospital"]:
+        raise SchemaError("p3_results: levels must be patch, slide, patient, hospital")
+    for e in d["levels"]:
+        w = f"p3_results.{e['level']}"
+        for k in ("phikon", "cnn", "phikon_minus_cnn"):
+            _est_ci(_need(e, k, w), f"{w}.{k}")
+    probe = _need(d, "rq1_probe", "p3_results")
+    for k in ("accuracy_mean", "balanced_accuracy_mean", "shuffled_control_accuracy_mean", "chance"):
+        _finite(_need(probe, k, "p3_results.rq1_probe"), f"rq1_probe.{k}")
+    if abs(probe["shuffled_control_accuracy_mean"] - probe["chance"]) > 0.05:
+        raise SchemaError("p3_results: the shuffled-label probe is not near chance; there may be leakage")
+    hosp = _need(d, "per_hospital", "p3_results")
+    if [h.get("hospital") for h in hosp] != [0, 1, 2, 3, 4]:
+        raise SchemaError("p3_results: per_hospital must hold hospitals 0 to 4")
+    for h in hosp:
+        w = f"p3_results.hospital{h['hospital']}"
+        for k in ("phikon", "cnn", "phikon_rq3", "phikon_minus_cnn", "rq3_minus_phikon", "aug_minus_plain_cnn"):
+            _est_ci(_need(h, k, w), f"{w}.{k}")
+        r4 = _need(h, "rq4", w)
+        _finite(_need(r4, "threshold", w + ".rq4"), w + ".rq4.threshold")
+        for k in ("sens", "spec", "ece"):
+            _est_ci(_need(r4, k, w + ".rq4"), f"{w}.rq4.{k}")
+    for k in ("phikon_rq3", "rq3_minus_phikon", "aug_minus_plain_cnn"):
+        _est_ci(_need(_need(d, "hospital_pooled", "p3_results"), k, "p3_results.hospital_pooled"), f"hospital_pooled.{k}")
+
+
+def validate_hest_ccrcc(d: dict) -> None:
+    """hest_ccrcc.json (written by hest-splits/split_compare.py): four ways of holding out spots, same protocol as HEST-Benchmark."""
+    for key in ("generated_at", "n_spots", "n_sections", "n_genes"):
+        _need(d, key, "hest_ccrcc")
+    rep = _need(d, "reproduction", "hest_ccrcc")
+    for k in ("mean_of_benchmark_fold_values", "published", "published_std"):
+        _finite(_need(rep, k, "hest_ccrcc.reproduction"), f"hest_ccrcc.reproduction.{k}")
+    if [e.get("level") for e in _need(d, "levels", "hest_ccrcc")] != ["spot", "block", "section", "benchmark_fold"]:
+        raise SchemaError("hest_ccrcc: levels must be spot, block, section, benchmark_fold")
+    for e in d["levels"]:
+        w = f"hest_ccrcc.{e['level']}"
+        _interval(_need(e, "ci", w), w + ".ci", _finite(_need(e, "pooled_pearson", w), w + ".pooled_pearson"))
+        if len(_need(e, "per_fold", w)) != 6:
+            raise SchemaError(f"{w}: per_fold must hold six values")
+        for v in e["per_fold"]:
+            _finite(v, w + ".per_fold")
+    for e in _need(d, "deltas", "hest_ccrcc"):
+        _est_ci(e, f"hest_ccrcc.delta.{e.get('a')}-{e.get('b')}")
